@@ -573,13 +573,25 @@
     setInfo("Calcul de l'itinéraire…");
     if(routeLine){ map.removeLayer(routeLine); routeLine=null; }
     try{
-      const url = `https://router.project-osrm.org/route/v1/driving/${fromLatLng[1]},${fromLatLng[0]};${toLatLng[1]},${toLatLng[0]}?overview=full&geometries=geojson`;
+      const url = `https://router.project-osrm.org/route/v1/driving/${fromLatLng[1]},${fromLatLng[0]};${toLatLng[1]},${toLatLng[0]}?overview=full&geometries=geojson&steps=true`;
       const res  = await fetch(url);
       const data = await res.json();
       if(data.routes && data.routes.length){
-        const route  = data.routes[0];
-        const coords = route.geometry.coordinates.map(c=>[c[1], c[0]]);
-        routeLine = L.polyline(coords, {color:'#1f6f5c', weight:5, opacity:0.9}).addTo(map);
+        const route = data.routes[0];
+        // Reconstruction depuis les steps pour une trace précise rue par rue
+        let coords = [];
+        for(const leg of route.legs){
+          for(const step of leg.steps){
+            const pts = step.geometry.coordinates.map(c=>[c[1],c[0]]);
+            // évite doublons de jonction
+            if(coords.length && pts.length){
+              const last = coords[coords.length-1];
+              if(last[0]===pts[0][0] && last[1]===pts[0][1]) pts.shift();
+            }
+            coords = coords.concat(pts);
+          }
+        }
+        routeLine = L.polyline(coords, {color:'#1f6f5c', weight:5, opacity:0.92, lineJoin:'round', lineCap:'round'}).addTo(map);
         map.fitBounds(routeLine.getBounds(), {padding:[40,40]});
         const km  = (route.distance/1000).toFixed(1);
         const min = Math.round(route.duration/60);
