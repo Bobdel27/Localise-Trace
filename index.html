@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>Itinéraire</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<style>
+  :root{
+    --ink:#12181f;
+    --paper:#f5f3ee;
+    --accent:#1f6f5c;
+    --accent-dim:#e4efe9;
+    --line:#d8d3c6;
+    --red:#c1421a;
+    --red-dim:#f4ded6;
+    --shadow:0 8px 24px rgba(18,24,31,0.18);
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{height:100%; margin:0;}
+  body{
+    font-family:-apple-system, "SF Pro Text", "Helvetica Neue", sans-serif;
+    background:var(--ink);
+    color:var(--ink);
+    overflow:hidden;
+  }
+  #map{ position:absolute; inset:0; }
+  .leaflet-control-attribution{font-size:9px; opacity:0.6;}
+
+  #panel{
+    position:absolute;
+    left:0; right:0; bottom:0;
+    z-index:1000;
+    max-height:78vh;
+    overflow-y:auto;
+    padding:14px 14px calc(env(safe-area-inset-bottom,0px) + 14px) 14px;
+    background:var(--paper);
+    border-radius:22px 22px 0 0;
+    box-shadow:0 -6px 30px rgba(0,0,0,0.28);
+    transition:transform .28s ease;
+  }
+  #panel.collapsed{
+    transform:translateY(calc(100% - 46px));
+  }
+  #panel.collapsed .group,
+  #panel.collapsed #actions,
+  #panel.collapsed #info{
+    opacity:0;
+    pointer-events:none;
+  }
+  #grip{
+    width:36px; height:4px; background:var(--line); border-radius:3px;
+    margin:0 auto 12px auto;
+    cursor:pointer;
+  }
+  #gripArea{
+    padding:6px 0 2px 0;
+    cursor:pointer;
+  }
+
+  @media (min-width:700px){
+    #panel{
+      left:auto; right:0; bottom:0; top:0;
+      width:380px;
+      max-height:none;
+      border-radius:18px 0 0 18px;
+      box-shadow:-6px 0 30px rgba(0,0,0,0.28);
+      transition:transform .28s ease;
+    }
+    #panel.collapsed{
+      transform:translateX(calc(100% - 46px));
+    }
+    #grip{
+      width:4px; height:36px;
+      margin:0 auto;
+    }
+    #locateFab{ right:396px; top:14px; }
+  }
+
+  @media (min-width:1100px){
+    #panel{ width:420px; }
+  }
+
+  .group{
+    border:1px solid var(--line);
+    border-radius:16px;
+    background:#fff;
+    padding:10px 12px 12px 12px;
+    margin-bottom:10px;
+  }
+  .group-title{
+    display:flex; align-items:center; gap:8px;
+    font-size:13px; font-weight:600;
+    color:#555044;
+    margin-bottom:8px;
+  }
+  .group-title .dot{width:9px; height:9px; border-radius:50%; flex-shrink:0;}
+  .dot.a{background:var(--accent);}
+  .dot.b{background:var(--red);}
+
+  .method-row{
+    display:flex; align-items:center; gap:8px;
+    margin-bottom:8px;
+  }
+  .method-row:last-child{margin-bottom:0;}
+  .method-label{
+    font-size:11.5px; color:#8a8574;
+    width:64px; flex-shrink:0;
+  }
+  .method-row input{
+    flex:1; min-width:0;
+    border:1px solid var(--line);
+    border-radius:10px;
+    background:#fbfaf7;
+    font-size:14.5px;
+    padding:10px 11px;
+    color:var(--ink);
+    font-family:inherit;
+    outline:none;
+  }
+  .method-row input:focus{border-color:var(--accent);}
+  .coord-pair{display:flex; gap:6px; flex:1; min-width:0;}
+  .coord-pair input{width:0; flex:1; min-width:0; font-size:13px; padding:10px 6px;}
+
+  .locate-inline-btn{
+    border:none; border-radius:10px;
+    background:var(--accent);
+    color:#fff;
+    font-size:14px; font-weight:600;
+    padding:11px;
+    font-family:inherit;
+    flex-shrink:0;
+  }
+  .locate-inline-btn:active{opacity:0.85;}
+
+  .set-btn{
+    border:none; border-radius:10px;
+    background:var(--accent-dim);
+    color:var(--accent);
+    font-size:13px; font-weight:600;
+    padding:10px 12px;
+    font-family:inherit;
+    flex-shrink:0;
+  }
+  .set-btn:active{background:var(--accent); color:#fff;}
+  .set-btn.red{background:var(--red-dim); color:var(--red);}
+  .set-btn.red:active{background:var(--red); color:#fff;}
+
+  @media (max-width:380px){
+    .method-row{flex-wrap:wrap;}
+    .method-label{width:100%; margin-bottom:2px;}
+    .coord-pair{width:100%;}
+    .set-btn{margin-left:auto; margin-top:6px;}
+  }
+
+  #suggestionsFrom, #suggestionsTo{
+    max-height:0; overflow:hidden;
+    transition:max-height .25s ease;
+  }
+  #suggestionsFrom.open, #suggestionsTo.open{max-height:180px; overflow-y:auto; margin-top:6px;}
+  #suggestionsFrom div, #suggestionsTo div{
+    padding:10px 11px;
+    font-size:13.5px;
+    border-bottom:1px solid var(--line);
+    background:#fbfaf7;
+    border-radius:8px;
+    margin-bottom:4px;
+  }
+  #suggestionsFrom div:active, #suggestionsTo div:active{background:var(--accent-dim);}
+
+  #actions{ display:flex; gap:9px; margin-top:2px; }
+  #goBtn{
+    flex:1; border:none; border-radius:14px;
+    background:var(--accent); color:#fff;
+    font-size:15.5px; font-weight:600;
+    padding:14px; font-family:inherit;
+  }
+  #goBtn:active{opacity:0.85;}
+  #goBtn:disabled{background:#c9c4b6; color:#8a8574;}
+  #clearBtn{
+    border:none; border-radius:14px;
+    background:var(--red); color:#fff;
+    font-size:15.5px; font-weight:600;
+    padding:14px 18px; font-family:inherit;
+  }
+  #clearBtn:active{opacity:0.85;}
+
+  #info{
+    text-align:center; font-size:12.5px; color:#6b6656;
+    margin-top:10px; min-height:14px;
+  }
+
+  #mapModeBanner{
+    position:absolute;
+    top:14px; left:14px; right:14px;
+    z-index:1001;
+    display:none;
+    background:var(--ink);
+    color:#fff;
+    text-align:center;
+    padding:10px 14px;
+    border-radius:12px;
+    font-size:13.5px;
+    box-shadow:var(--shadow);
+  }
+  #mapModeBanner.show{display:block;}
+  #mapModeBanner span{font-weight:700;}
+
+  #locateFab{
+    position:absolute; z-index:1001; right:14px; bottom:calc(env(safe-area-inset-bottom,0px) + 200px);
+    width:46px; height:46px; border-radius:50%;
+    background:#fff; border:none; box-shadow:var(--shadow);
+    display:flex; align-items:center; justify-content:center;
+    color:var(--accent);
+    transition:right .28s ease, bottom .28s ease;
+  }
+  #locateFab:active{background:var(--accent-dim);}
+  #locateFab svg{width:22px; height:22px;}
+
+  #trackFab{
+    position:absolute; z-index:1001; right:14px; bottom:calc(env(safe-area-inset-bottom,0px) + 256px);
+    width:46px; height:46px; border-radius:50%;
+    background:#fff; border:none; box-shadow:var(--shadow);
+    display:flex; align-items:center; justify-content:center;
+    color:#555;
+    transition:right .28s ease, bottom .28s ease, background .2s, color .2s;
+  }
+  #trackFab.active{ background:var(--accent); color:#fff; }
+  #trackFab:active{ opacity:0.85; }
+  #trackFab svg{ width:20px; height:20px; }
+  @media (min-width:700px){
+    #locateFab{ right:396px; bottom:auto; top:14px; }
+    #trackFab{ right:396px; bottom:auto; top:68px; }
+  }
+  @keyframes pulse-ring{
+    0%{transform:scale(1);opacity:0.7;}
+    100%{transform:scale(2.8);opacity:0;}
+  }
+  .my-location-dot{
+    width:16px; height:16px; border-radius:50%;
+    background:#1a73e8; border:2.5px solid #fff;
+    box-shadow:0 0 0 2px rgba(26,115,232,0.4);
+    position:relative;
+  }
+  .my-location-dot::after{
+    content:''; position:absolute;
+    inset:-5px; border-radius:50%;
+    background:rgba(26,115,232,0.22);
+    animation:pulse-ring 1.8s ease-out infinite;
+  }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+<div id="mapModeBanner">Touche la carte pour placer <span id="mapModeLabel"></span> — <span id="mapModeCancel" style="text-decoration:underline;">annuler</span></div>
+<button id="locateFab" title="Me localiser">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M22 12h-3M5 12H2"/></svg>
+</button>
+<button id="trackFab" title="Suivi de position en temps réel">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s-8-4.5-8-11.8A8 8 0 0 1 12 2a8 8 0 0 1 8 8.2c0 7.3-8 11.8-8 11.8z"/><circle cx="12" cy="10" r="3"/></svg>
+</button>
+
+<div id="panel">
+  <div id="gripArea"><div id="grip"></div></div>
+
+  <div class="group">
+    <div class="group-title"><div class="dot a"></div>Point de départ</div>
+
+    <div class="method-row">
+      <span class="method-label">Localiser</span>
+      <button class="locate-inline-btn" id="locateBtn">Me localiser</button>
+    </div>
+
+    <div class="method-row">
+      <span class="method-label">Adresse</span>
+      <input id="fromAddrInput" type="text" placeholder="Ex : 10 rue de Rivoli, Paris" autocomplete="off">
+    </div>
+    <div id="suggestionsFrom"></div>
+
+    <div class="method-row">
+      <span class="method-label">GPS</span>
+      <div class="coord-pair">
+        <input id="fromLat" type="text" inputmode="decimal" placeholder="Latitude" autocomplete="off" autocorrect="off" spellcheck="false">
+        <input id="fromLon" type="text" inputmode="decimal" placeholder="Longitude" autocomplete="off" autocorrect="off" spellcheck="false">
+      </div>
+      <button class="set-btn" id="fromCoordBtn">Utiliser</button>
+    </div>
+
+    <div class="method-row">
+      <span class="method-label">Carte</span>
+      <button class="locate-inline-btn" id="fromMapBtn" style="background:var(--accent-dim); color:var(--accent);">Cliquer sur la carte</button>
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="group-title"><div class="dot b"></div>Destination</div>
+
+    <div class="method-row">
+      <span class="method-label">Adresse</span>
+      <input id="toAddrInput" type="text" placeholder="Ex : Tour Eiffel, Paris" autocomplete="off">
+    </div>
+    <div id="suggestionsTo"></div>
+
+    <div class="method-row">
+      <span class="method-label">GPS</span>
+      <div class="coord-pair">
+        <input id="toLat" type="text" inputmode="decimal" placeholder="Latitude" autocomplete="off" autocorrect="off" spellcheck="false">
+        <input id="toLon" type="text" inputmode="decimal" placeholder="Longitude" autocomplete="off" autocorrect="off" spellcheck="false">
+      </div>
+      <button class="set-btn red" id="toCoordBtn">Utiliser</button>
+    </div>
+
+    <div class="method-row">
+      <span class="method-label">Carte</span>
+      <button class="locate-inline-btn" id="toMapBtn" style="background:var(--red-dim); color:var(--red);">Cliquer sur la carte</button>
+    </div>
+  </div>
+
+  <div id="actions">
+    <button id="goBtn" disabled>Itinéraire</button>
+    <button id="clearBtn">Effacer</button>
+  </div>
+
+  <div id="info"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+  const map = L.map('map', {zoomControl:false}).setView([48.8566, 2.3522], 13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom:19,
+    attribution:'© OpenStreetMap'
+  }).addTo(map);
+  L.control.zoom({position:'bottomleft'}).addTo(map);
+
+  const accentIcon = L.divIcon({className:'', html:'<div style="width:16px;height:16px;border-radius:50%;background:#1f6f5c;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.4)"></div>', iconSize:[16,16], iconAnchor:[8,8]});
+  const redIcon = L.divIcon({className:'', html:'<div style="width:16px;height:16px;border-radius:50%;background:#c1421a;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.4)"></div>', iconSize:[16,16], iconAnchor:[8,8]});
+
+  let fromLatLng = null, toLatLng = null;
+  let fromMarker = null, toMarker = null, routeLine = null;
+
+  const fromAddrInput = document.getElementById('fromAddrInput');
+  const toAddrInput = document.getElementById('toAddrInput');
+  const fromLat = document.getElementById('fromLat');
+  const fromLon = document.getElementById('fromLon');
+  const toLat = document.getElementById('toLat');
+  const toLon = document.getElementById('toLon');
+  const goBtn = document.getElementById('goBtn');
+  const clearBtn = document.getElementById('clearBtn');
+  const info = document.getElementById('info');
+  const suggestionsFrom = document.getElementById('suggestionsFrom');
+  const suggestionsTo = document.getElementById('suggestionsTo');
+
+  function setInfo(t){ info.textContent = t || ''; }
+  function updateGoState(){ goBtn.disabled = !(fromLatLng && toLatLng); }
+
+  function placeFrom(lat, lon, fly){
+    fromLatLng = [lat, lon];
+    if(fromMarker) map.removeLayer(fromMarker);
+    fromMarker = L.marker(fromLatLng, {icon:accentIcon, draggable:true}).addTo(map);
+    fromMarker.on('dragend', e=>{
+      const p = e.target.getLatLng();
+      fromLatLng = [p.lat, p.lng];
+      fromLat.value = p.lat.toFixed(6); fromLon.value = p.lng.toFixed(6);
+      updateGoState();
+    });
+    fromLat.value = lat.toFixed(6); fromLon.value = lon.toFixed(6);
+    if(fly) map.flyTo(fromLatLng, 15);
+    updateGoState();
+  }
+  function placeTo(lat, lon, fly){
+    toLatLng = [lat, lon];
+    if(toMarker) map.removeLayer(toMarker);
+    toMarker = L.marker(toLatLng, {icon:redIcon, draggable:true}).addTo(map);
+    toMarker.on('dragend', e=>{
+      const p = e.target.getLatLng();
+      toLatLng = [p.lat, p.lng];
+      toLat.value = p.lat.toFixed(6); toLon.value = p.lng.toFixed(6);
+      updateGoState();
+    });
+    toLat.value = lat.toFixed(6); toLon.value = lon.toFixed(6);
+    if(fly) map.flyTo(toLatLng, 15);
+    updateGoState();
+  }
+
+  // --- Méthode 4 : Cliquer sur la carte (indépendante) ---
+  let mapMode = null; // 'from' | 'to' | null
+  const banner = document.getElementById('mapModeBanner');
+  const bannerLabel = document.getElementById('mapModeLabel');
+  function startMapMode(which){
+    mapMode = which;
+    bannerLabel.textContent = which === 'from' ? 'le départ' : 'la destination';
+    banner.classList.add('show');
+  }
+  function stopMapMode(){
+    mapMode = null;
+    banner.classList.remove('show');
+  }
+  document.getElementById('mapModeCancel').addEventListener('click', stopMapMode);
+  document.getElementById('fromMapBtn').addEventListener('click', ()=>startMapMode('from'));
+  document.getElementById('toMapBtn').addEventListener('click', ()=>startMapMode('to'));
+  map.on('click', e=>{
+    if(!mapMode) return;
+    const {lat, lng} = e.latlng;
+    if(mapMode === 'from'){
+      placeFrom(lat, lng, false);
+    }else{
+      placeTo(lat, lng, false);
+    }
+  });
+
+  // --- Méthode 1 : Me localiser (indépendante) ---
+  async function locateByIP(fly){
+    setInfo('Localisation approximative…');
+    const services = [
+      {url:'https://ipapi.co/json/', parse:d=>({lat:d.latitude, lon:d.longitude, city:d.city})},
+      {url:'https://ipwho.is/', parse:d=>({lat:d.latitude, lon:d.longitude, city:d.city})},
+      {url:'https://get.geojs.io/v1/ip/geo.json', parse:d=>({lat:parseFloat(d.latitude), lon:parseFloat(d.longitude), city:d.city})}
+    ];
+    for(const svc of services){
+      try{
+        const res = await fetch(svc.url);
+        const data = await res.json();
+        const p = svc.parse(data);
+        if(p.lat && p.lon){
+          placeFrom(p.lat, p.lon, fly);
+          setInfo('Position approximative (' + (p.city || 'basée sur ta connexion') + ')');
+          return;
+        }
+      }catch(e){}
+    }
+    setInfo("Localisation indisponible dans cette visionneuse — utilise l'adresse ou le GPS manuel.");
+  }
+  function locateMe(fly){
+    if(navigator.geolocation){
+      setInfo('Localisation en cours…');
+      navigator.geolocation.getCurrentPosition(pos=>{
+        placeFrom(pos.coords.latitude, pos.coords.longitude, fly);
+        setInfo('');
+      }, err=>{
+        if(err.code === 1){
+          locateByIP(fly);
+        }else{
+          setInfo("Position indisponible, réessaie");
+        }
+      }, {enableHighAccuracy:true, timeout:20000, maximumAge:0});
+    }else{
+      locateByIP(fly);
+    }
+  }
+  document.getElementById('locateBtn').addEventListener('click', ()=>locateMe(true));
+  document.getElementById('locateFab').addEventListener('click', ()=>locateMe(true));
+
+  // --- Méthode 2 : Adresse (indépendante) ---
+  function wireAddressSearch(input, suggBox, onPick){
+    let t = null;
+    input.addEventListener('input', ()=>{
+      clearTimeout(t);
+      const val = input.value;
+      if(val.trim().length < 3){ suggBox.classList.remove('open'); suggBox.innerHTML=''; return; }
+      t = setTimeout(async ()=>{
+        try{
+          const res = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=5&q=' + encodeURIComponent(val));
+          const data = await res.json();
+          if(!data.length){ suggBox.innerHTML = '<div>Aucun résultat</div>'; suggBox.classList.add('open'); return; }
+          suggBox.innerHTML = data.map((d,i)=>`<div data-i="${i}">${d.display_name}</div>`).join('');
+          suggBox.classList.add('open');
+          [...suggBox.children].forEach((el,i)=>{
+            el.addEventListener('click', ()=>{
+              onPick(parseFloat(data[i].lat), parseFloat(data[i].lon));
+              suggBox.classList.remove('open');
+            });
+          });
+        }catch(e){
+          suggBox.innerHTML = '<div>Recherche indisponible</div>';
+          suggBox.classList.add('open');
+        }
+      }, 400);
+    });
+  }
+  wireAddressSearch(fromAddrInput, suggestionsFrom, (lat,lon)=>placeFrom(lat,lon,true));
+  wireAddressSearch(toAddrInput, suggestionsTo, (lat,lon)=>placeTo(lat,lon,true));
+
+  // --- Méthode 3 : Latitude/Longitude manuelles (indépendante) ---
+  function tryCoord(latEl, lonEl){
+    const lat = parseFloat(latEl.value.replace(',','.'));
+    const lon = parseFloat(lonEl.value.replace(',','.'));
+    if(isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+    return [lat, lon];
+  }
+  document.getElementById('fromCoordBtn').addEventListener('click', ()=>{
+    const c = tryCoord(fromLat, fromLon);
+    if(c){ placeFrom(c[0], c[1], true); setInfo(''); }
+    else setInfo('Coordonnées de départ invalides');
+  });
+  document.getElementById('toCoordBtn').addEventListener('click', ()=>{
+    const c = tryCoord(toLat, toLon);
+    if(c){ placeTo(c[0], c[1], true); setInfo(''); }
+    else setInfo('Coordonnées de destination invalides');
+  });
+
+  // --- Itinéraire ---
+  goBtn.addEventListener('click', async ()=>{
+    if(!fromLatLng || !toLatLng) return;
+    setInfo("Calcul de l'itinéraire…");
+    if(routeLine){ map.removeLayer(routeLine); routeLine = null; }
+    try{
+      const url = `https://router.project-osrm.org/route/v1/driving/${fromLatLng[1]},${fromLatLng[0]};${toLatLng[1]},${toLatLng[0]}?overview=full&geometries=geojson`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if(data.routes && data.routes.length){
+        const route = data.routes[0];
+        const coords = route.geometry.coordinates.map(c=>[c[1], c[0]]);
+        routeLine = L.polyline(coords, {color:'#1f6f5c', weight:5, opacity:0.9}).addTo(map);
+        map.fitBounds(routeLine.getBounds(), {padding:[40,40]});
+        const km = (route.distance/1000).toFixed(1);
+        const min = Math.round(route.duration/60);
+        setInfo(`${km} km · environ ${min} min`);
+      }else{
+        setInfo("Itinéraire introuvable" + (data.message ? " (" + data.message + ")" : ""));
+      }
+    }catch(e){
+      setInfo("Erreur de calcul d'itinéraire");
+    }
+  });
+
+  // --- Effacer ---
+  clearBtn.addEventListener('click', ()=>{
+    stopMapMode();
+    fromAddrInput.value=''; toAddrInput.value='';
+    fromLat.value=''; fromLon.value=''; toLat.value=''; toLon.value='';
+    fromLatLng = null; toLatLng = null;
+    if(fromMarker){ map.removeLayer(fromMarker); fromMarker=null; }
+    if(toMarker){ map.removeLayer(toMarker); toMarker=null; }
+    if(routeLine){ map.removeLayer(routeLine); routeLine=null; }
+    suggestionsFrom.classList.remove('open'); suggestionsFrom.innerHTML='';
+    suggestionsTo.classList.remove('open'); suggestionsTo.innerHTML='';
+    setInfo('');
+    updateGoState();
+  });
+
+  // --- Suivi de localisation en temps réel ---
+  let trackWatchId = null;
+  let myLocMarker = null;
+  let trackingActive = false;
+  const trackFab = document.getElementById('trackFab');
+
+  const myLocIcon = L.divIcon({
+    className:'',
+    html:'<div class="my-location-dot"></div>',
+    iconSize:[16,16],
+    iconAnchor:[8,8]
+  });
+
+  function updateMyLocation(lat, lon){
+    if(!myLocMarker){
+      myLocMarker = L.marker([lat, lon], {icon:myLocIcon, zIndexOffset:500}).addTo(map);
+    } else {
+      myLocMarker.setLatLng([lat, lon]);
+    }
+  }
+
+  function startTracking(){
+    if(!navigator.geolocation){ setInfo("Géolocalisation non supportée"); return; }
+    trackingActive = true;
+    trackFab.classList.add('active');
+    trackWatchId = navigator.geolocation.watchPosition(pos=>{
+      const {latitude:lat, longitude:lon} = pos.coords;
+      updateMyLocation(lat, lon);
+      map.panTo([lat, lon]);
+    }, err=>{
+      setInfo("Suivi indisponible : " + (err.code === 1 ? "permission refusée" : "erreur GPS"));
+      stopTracking();
+    }, {enableHighAccuracy:true, maximumAge:3000, timeout:15000});
+  }
+
+  function stopTracking(){
+    trackingActive = false;
+    trackFab.classList.remove('active');
+    if(trackWatchId !== null){
+      navigator.geolocation.clearWatch(trackWatchId);
+      trackWatchId = null;
+    }
+    if(myLocMarker){ map.removeLayer(myLocMarker); myLocMarker = null; }
+  }
+
+  trackFab.addEventListener('click', ()=>{
+    if(trackingActive) stopTracking();
+    else startTracking();
+  });
+
+  // Arrêter le suivi si on efface tout
+  const _origClear = clearBtn.onclick;
+  clearBtn.addEventListener('click', ()=>{ if(trackingActive) stopTracking(); });
+
+  // --- Réduire / agrandir le tableau de bord ---
+  const panelEl = document.getElementById('panel');
+  const gripArea = document.getElementById('gripArea');
+  const locateFab = document.getElementById('locateFab');
+  function positionFab(){
+    if(window.innerWidth >= 700){
+      const r = panelEl.classList.contains('collapsed') ? '60px' : '396px';
+      locateFab.style.right = r;
+      trackFab.style.right = r;
+    }else{
+      locateFab.style.right = '14px';
+      trackFab.style.right = '14px';
+    }
+  }
+  gripArea.addEventListener('click', ()=>{
+    panelEl.classList.toggle('collapsed');
+    positionFab();
+    setTimeout(()=>map.invalidateSize(), 300);
+  });
+  window.addEventListener('resize', ()=>{ positionFab(); map.invalidateSize(); });
+  positionFab();
+</script>
+</body>
+</html>
