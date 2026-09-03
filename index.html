@@ -24,6 +24,8 @@
     --green-dark:#307141;
     --blue:#3468a5;
     --blue-dark:#285387;
+    --violet:#7a5cb8;
+    --violet-dark:#5f4590;
     --line: rgba(243,238,226,.12);
     --mono:'JetBrains Mono', ui-monospace, Menlo, monospace;
     --serif:'Fraunces', Georgia, serif;
@@ -237,6 +239,16 @@
     display:none;
   }
   .track-info.show{display:block;}
+  .route-info{
+    margin-top:12px;
+    font-family:var(--mono);
+    font-size:11.5px;
+    color:#b09be0;
+    display:none;
+  }
+  .route-info.show{display:block;}
+  .action-route.is-loading{opacity:.65; pointer-events:none;}
+  .action-route.is-loading svg{animation:pulseDot 1s ease-in-out infinite;}
 
   h2.sect{
     font-family:var(--serif);
@@ -323,7 +335,7 @@
 
   .actions{
     display:grid;
-    grid-template-columns:1fr 1fr 1fr;
+    grid-template-columns:1fr 1fr;
     gap:10px;
     margin-top:20px;
   }
@@ -354,6 +366,11 @@
     color:var(--ink);
     box-shadow:0 4px 14px rgba(0,0,0,.28), 0 0 0 1px rgba(201,150,63,.6), 0 0 16px 3px rgba(201,150,63,.6);
   }
+  .action-route{
+    background:linear-gradient(180deg, var(--violet), var(--violet-dark));
+    box-shadow:0 4px 14px rgba(0,0,0,.28), 0 0 0 1px rgba(122,92,184,.55), 0 0 14px 2px rgba(122,92,184,.55);
+  }
+  .action-route:hover{filter:brightness(1.08);}
 
   .hint{
     margin-top:14px;
@@ -564,8 +581,13 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" id="lockIcon"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
         <span id="lockLabel">Déplacer</span>
       </button>
+      <button class="btn action action-route" id="btnRoute">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="5" r="2.2"/><path d="M6 16.8V13a4 4 0 0 1 4-4h4a4 4 0 0 0 4-4"/></svg>
+        <span>Itinéraire</span>
+      </button>
     </div>
 
+    <div class="route-info" id="routeInfo"></div>
     <div class="hint">Touchez la carte pour déplacer le repère tant qu'il n'est pas verrouillé. Le bouton bleu verrouille sa position.</div>
   </div>
 </div>
@@ -576,6 +598,29 @@
 <script>
 (function(){
   "use strict";
+
+  window.addEventListener('error', function(e){
+    try{
+      var t = document.getElementById('toast');
+      if(t){
+        t.textContent = 'Erreur : ' + (e.message || 'inconnue');
+        t.classList.add('show');
+        clearTimeout(t._t);
+        t._t = setTimeout(function(){ t.classList.remove('show'); }, 4000);
+      }
+    }catch(_){}
+  });
+  window.addEventListener('unhandledrejection', function(e){
+    try{
+      var t = document.getElementById('toast');
+      if(t){
+        t.textContent = 'Erreur réseau : ' + (e.reason && e.reason.message ? e.reason.message : 'inconnue');
+        t.classList.add('show');
+        clearTimeout(t._t);
+        t._t = setTimeout(function(){ t.classList.remove('show'); }, 4000);
+      }
+    }catch(_){}
+  });
 
   var map = L.map('map', { zoomControl:false, attributionControl:true }).setView([46.6, 2.4], 6);
   L.control.zoom({position:'bottomleft'}).addTo(map);
@@ -928,6 +973,7 @@
     if(locateWatchId !== null){ navigator.geolocation.clearWatch(locateWatchId); locateWatchId = null; compass.classList.remove('spinning'); }
     if(isTracking){ stopTracking(true); }
     removeMeMarker();
+    clearRoute();
     locked = false;
     moveArmed = false;
     document.getElementById('addrInput').value = '';
@@ -968,7 +1014,77 @@
     refreshTrackInfo();
   });
 
-  /* ---------- Libérer la carte ---------- */
+  /* ---------- Violet : itinéraire sur la carte ---------- */
+  var routeLine = null;
+  var routeInfo = document.getElementById('routeInfo');
+
+  function clearRoute(){
+    if(routeLine){ map.removeLayer(routeLine); routeLine = null; }
+    if(routeInfo){ routeInfo.classList.remove('show'); }
+  }
+
+  document.getElementById('btnRoute').addEventListener('click', function(){
+   try{
+    if(!marker){ toast('Placez d\'abord un repère.'); return; }
+    if(!navigator.geolocation){
+      toast('Géolocalisation indisponible sur cet appareil.');
+      return;
+    }
+    var dest = marker.getLatLng();
+    var routeBtn = document.getElementById('btnRoute');
+    routeBtn.classList.add('is-loading');
+    toast('Calcul de l\'itinéraire…');
+
+    navigator.geolocation.getCurrentPosition(function(pos){
+      var start = L.latLng(pos.coords.latitude, pos.coords.longitude);
+      var url = 'https://router.project-osrm.org/route/v1/driving/' +
+        start.lng + ',' + start.lat + ';' + dest.lng + ',' + dest.lat +
+        '?overview=full&geometries=geojson';
+
+      fetch(url).then(function(r){ return r.json(); }).then(function(data){
+        routeBtn.classList.remove('is-loading');
+        if(!data.routes || !data.routes.length){ throw new Error('no-route'); }
+        var route = data.routes[0];
+        var latlngs = route.geometry.coordinates.map(function(c){ return [c[1], c[0]]; });
+
+        clearRoute();
+        routeLine = L.polyline(latlngs, {
+          color:'#7a5cb8', weight:5, opacity:.85, lineCap:'round', lineJoin:'round'
+        }).addTo(map);
+        map.fitBounds(routeLine.getBounds(), { padding:[50,50] });
+
+        var km = (route.distance/1000).toFixed(1);
+        var mins = Math.round(route.duration/60);
+        if(routeInfo){
+          routeInfo.textContent = '↝ ' + km + ' km · ~' + mins + ' min en voiture';
+          routeInfo.classList.add('show');
+        }
+        toast('Itinéraire tracé — ' + km + ' km, ~' + mins + ' min.');
+      }).catch(function(err){
+        routeBtn.classList.remove('is-loading');
+        // repli : le service routier ne répond pas — on trace au moins une ligne directe
+        clearRoute();
+        routeLine = L.polyline([start, dest], {
+          color:'#7a5cb8', weight:4, opacity:.75, dashArray:'2 10', lineCap:'round'
+        }).addTo(map);
+        map.fitBounds(routeLine.getBounds(), { padding:[50,50] });
+        var dKm = (start.distanceTo(dest)/1000).toFixed(1);
+        if(routeInfo){
+          routeInfo.textContent = '⇢ ' + dKm + ' km à vol d\'oiseau (service routier indisponible)';
+          routeInfo.classList.add('show');
+        }
+        toast('Service d\'itinéraire indisponible — ligne directe affichée.');
+      });
+    }, function(err){
+      routeBtn.classList.remove('is-loading');
+      var msg = 'Position introuvable pour l\'itinéraire.';
+      if(err && err.code === 1) msg = 'Localisation refusée — autorisez l\'accès à la position.';
+      toast(msg);
+    }, { enableHighAccuracy:true, timeout:12000 });
+   } catch(err){
+     toast('Erreur itinéraire : ' + (err && err.message ? err.message : 'inconnue'));
+   }
+  });
   var panelEl = document.querySelector('.panel');
   var toggleIcon = document.getElementById('toggleIcon');
   var btnToggleMap = document.getElementById('btnToggleMap');
