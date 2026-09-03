@@ -191,16 +191,17 @@
 
   /* ── Map mode banner ── */
   #mapModeBanner{
-    position:absolute;
+    position:fixed;
     top:calc(var(--safe-top) + 14px); left:14px; right:14px;
-    z-index:1001;
+    z-index:2000;
     display:none;
     background:var(--ink); color:#fff;
     text-align:center;
-    padding:12px 14px;
-    border-radius:12px;
-    font-size:13.5px;
+    padding:12px 16px;
+    border-radius:14px;
+    font-size:14px;
     box-shadow:var(--shadow);
+    pointer-events:auto;
   }
   #mapModeBanner.show{ display:block; }
   #mapModeBanner span{ font-weight:700; }
@@ -401,6 +402,25 @@
     updateGoState();
   }
 
+  // ── Panel collapse ──
+  function positionFabs(){
+    if(window.innerWidth >= 700){
+      const r = panelEl.classList.contains('collapsed') ? '60px' : '396px';
+      locateFab.style.right = r;
+      trackFab.style.right  = r;
+    } else {
+      locateFab.style.right = '14px';
+      trackFab.style.right  = '14px';
+    }
+  }
+  gripArea.addEventListener('click', ()=>{
+    panelEl.classList.toggle('collapsed');
+    positionFabs();
+    setTimeout(()=>map.invalidateSize(), 300);
+  });
+  window.addEventListener('resize', ()=>{ positionFabs(); map.invalidateSize(); });
+  positionFabs();
+
   // ── Carte click ──
   let mapMode = null;
   const banner      = document.getElementById('mapModeBanner');
@@ -423,10 +443,15 @@
     if(mapMode === 'from') placeFrom(lat, lng, false);
     else                   placeTo(lat, lng, false);
     stopMapMode();
+    panelEl.classList.remove('collapsed');
+    positionFabs();
+    setTimeout(()=>map.invalidateSize(), 300);
   });
 
   // ── Localisation ponctuelle ──
-  async function locateByIP(fly){
+  let locateToken = 0; // annule les callbacks obsolètes
+
+  async function locateByIP(fly, token){
     setInfo('Localisation approximative…');
     const services = [
       {url:'https://ipapi.co/json/',               parse:d=>({lat:d.latitude,             lon:d.longitude,              city:d.city})},
@@ -439,24 +464,41 @@
         const data = await res.json();
         const p    = svc.parse(data);
         if(p.lat && p.lon){
+          if(locateToken !== token) return; // requête annulée
           placeFrom(p.lat, p.lon, fly);
           setInfo('Position approximative (' + (p.city || 'basée sur ta connexion') + ')');
           return;
         }
       }catch(e){}
     }
+    if(locateToken !== token) return;
     setInfo("Localisation indisponible — utilise l'adresse ou le GPS manuel.");
   }
+
   function locateMe(fly){
+    locateToken++; // invalide tout callback en cours
+    const token = locateToken;
     if(navigator.geolocation){
       setInfo('Localisation en cours…');
       navigator.geolocation.getCurrentPosition(
-        pos=>{ placeFrom(pos.coords.latitude, pos.coords.longitude, fly); setInfo(''); },
-        err=>{ if(err.code === 1) locateByIP(fly); else setInfo("Position indisponible, réessaie"); },
-        {enableHighAccuracy:true, timeout:20000, maximumAge:0}
+        pos=>{
+          if(locateToken !== token) return;
+          placeFrom(pos.coords.latitude, pos.coords.longitude, fly);
+          setInfo('');
+        },
+        err=>{
+          if(locateToken !== token) return;
+          if(err.code === 1){
+            locateByIP(fly, token);
+          } else {
+            // timeout ou autre : on tente quand même IP comme fallback
+            locateByIP(fly, token);
+          }
+        },
+        {enableHighAccuracy:true, timeout:8000, maximumAge:30000}
       );
     } else {
-      locateByIP(fly);
+      locateByIP(fly, token);
     }
   }
   document.getElementById('locateBtn').addEventListener('click', ()=>locateMe(true));
@@ -534,6 +576,7 @@
 
   // ── Effacer ──
   clearBtn.addEventListener('click', ()=>{
+    locateToken++; // annule toute localisation en cours
     stopMapMode();
     stopTracking();
     fromAddrInput.value=''; toAddrInput.value='';
@@ -573,25 +616,6 @@
     if(myLocMarker){ map.removeLayer(myLocMarker); myLocMarker=null; }
   }
   trackFab.addEventListener('click', ()=>{ if(trackingActive) stopTracking(); else startTracking(); });
-
-  // ── Panel collapse ──
-  function positionFabs(){
-    if(window.innerWidth >= 700){
-      const r = panelEl.classList.contains('collapsed') ? '60px' : '396px';
-      locateFab.style.right = r;
-      trackFab.style.right  = r;
-    } else {
-      locateFab.style.right = '14px';
-      trackFab.style.right  = '14px';
-    }
-  }
-  gripArea.addEventListener('click', ()=>{
-    panelEl.classList.toggle('collapsed');
-    positionFabs();
-    setTimeout(()=>map.invalidateSize(), 300);
-  });
-  window.addEventListener('resize', ()=>{ positionFabs(); map.invalidateSize(); });
-  positionFabs();
 </script>
 </body>
 </html>
