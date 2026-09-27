@@ -200,7 +200,7 @@
 
   #mapModeBanner{
     position:absolute;
-    top:14px; left:14px; right:14px;
+    top:14px; left:14px; right:70px;
     z-index:1001;
     display:none;
     background:var(--ink);
@@ -582,8 +582,10 @@
   });
 
   // --- Itinéraire ---
+  let routeRequestId = 0;
   goBtn.addEventListener('click', async ()=>{
     if(!fromLatLng || !toLatLng) return;
+    const reqId = ++routeRequestId;
     setInfo("Calcul de l'itinéraire…");
     if(routeLine){ map.removeLayer(routeLine); routeLine = null; }
     try{
@@ -593,6 +595,7 @@
       const url = `${base}${fromLatLng[1]},${fromLatLng[0]};${toLatLng[1]},${toLatLng[0]}?overview=full&geometries=geojson`;
       const res = await fetch(url);
       const data = await res.json();
+      if(reqId !== routeRequestId) return;
       if(data.routes && data.routes.length){
         const route = data.routes[0];
         const coords = route.geometry.coordinates.map(c=>[c[1], c[0]]);
@@ -614,6 +617,7 @@
 
   // --- Effacer ---
   clearBtn.addEventListener('click', ()=>{
+    routeRequestId++;
     stopMapMode();
     fromAddrInput.value=''; toAddrInput.value='';
     fromLat.value=''; fromLon.value=''; toLat.value=''; toLon.value='';
