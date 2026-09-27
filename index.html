@@ -498,6 +498,7 @@
   const trackFab = document.getElementById('trackFab');
   function stopTracking(){
     if(watchId !== null){ navigator.geolocation.clearWatch(watchId); watchId = null; }
+    if(liveMarker){ map.removeLayer(liveMarker); liveMarker = null; }
     trackFab.classList.remove('active');
   }
   function startTracking(){
