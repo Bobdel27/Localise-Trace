@@ -74,7 +74,6 @@
       width:4px; height:36px;
       margin:0 auto;
     }
-    #locateFab{ right:396px; top:calc(env(safe-area-inset-top, 0px) + 14px); }
   }
 
   @media (min-width:1100px){
@@ -239,10 +238,6 @@
   #fitRouteFab:active{background:var(--accent-dim);}
   #fitRouteFab svg{width:20px; height:20px;}
 
-  @media (min-width:700px){
-    #fitRouteFab{ right:14px; top:calc(env(safe-area-inset-top, 0px) + 68px); }
-  }
-
   #smsFab{
     position:absolute; z-index:1000; right:14px;
     top:calc(env(safe-area-inset-top, 0px) + 122px);
@@ -250,6 +245,7 @@
     background:#fff; border:none; box-shadow:var(--shadow);
     display:flex; align-items:center; justify-content:center;
     color:var(--accent);
+    transition:right .28s ease;
   }
   #smsFab:active{background:var(--accent-dim);}
   #smsFab svg{width:20px; height:20px;}
@@ -261,6 +257,7 @@
     background:#fff; border:none; box-shadow:var(--shadow);
     display:flex; align-items:center; justify-content:center;
     color:var(--accent);
+    transition:right .28s ease;
   }
   #trackFab.active{ background:var(--accent); color:#fff; }
   #trackFab:active{opacity:0.85;}
@@ -399,6 +396,7 @@
 
   function placeFrom(lat, lon, fly){
     fromLatLng = [lat, lon];
+    fromLat.value = lat.toFixed(6); fromLon.value = lon.toFixed(6);
     if(fromMarker) map.removeLayer(fromMarker);
     fromMarker = L.marker(fromLatLng, {icon:accentIcon, draggable:true}).addTo(map);
     fromMarker.on('dragend', e=>{
@@ -412,6 +410,7 @@
   }
   function placeTo(lat, lon, fly){
     toLatLng = [lat, lon];
+    toLat.value = lat.toFixed(6); toLon.value = lon.toFixed(6);
     if(toMarker) map.removeLayer(toMarker);
     toMarker = L.marker(toLatLng, {icon:redIcon, draggable:true}).addTo(map);
     toMarker.on('dragend', e=>{
@@ -633,12 +632,15 @@
   const panelEl = document.getElementById('panel');
   const gripArea = document.getElementById('gripArea');
   const locateFab = document.getElementById('locateFab');
+  const allFabs = [locateFab, fitRouteFab, document.getElementById('smsFab'), document.getElementById('trackFab')];
   function positionFab(){
+    let right;
     if(window.innerWidth >= 700){
-      locateFab.style.right = panelEl.classList.contains('collapsed') ? '60px' : '396px';
+      right = panelEl.classList.contains('collapsed') ? '60px' : '396px';
     }else{
-      locateFab.style.right = '14px';
+      right = '14px';
     }
+    allFabs.forEach(el => el.style.right = right);
   }
   gripArea.addEventListener('click', ()=>{
     panelEl.classList.toggle('collapsed');
